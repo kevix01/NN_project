@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms, models
 from torchvision.datasets import Food101
-from torchvision.models import ResNet50_Weights, ViT_B_16_Weights  # Import weights for both models
+from torchvision.models import ResNet50_Weights, ViT_B_16_Weights
 from tqdm import tqdm
 import os
 import argparse
@@ -64,7 +64,7 @@ def create_data_loaders(train_dataset, val_dataset, test_dataset, batch_size):
 
 
 # Function to load and modify the pre-trained model
-def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None):
+def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, final_layer_dropout=0.0, mlp_dropout=0.0, attention_dropout=0.0):
     if model_type == "resnet":
         # Load the pre-trained ResNet50 model
         model = models.resnet50(weights=ResNet50_Weights.DEFAULT)
@@ -73,12 +73,15 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None):
             param.requires_grad = False
 
         # Modify the final fully connected layer to match the number of classes
-        model.fc = nn.Linear(model.fc.in_features, num_classes)
+        model.fc = nn.Sequential(
+            nn.Dropout(final_layer_dropout),  # Dropout in the final layer
+            nn.Linear(model.fc.in_features, num_classes)
+        )
         model.fc.requires_grad = True  # Always fine-tune the final layer
 
         # Fine-tune specified layers
-        unique_layers = set()  # To store unique layer names
-        layer_status = {}  # To store the status of each layer (frozen or fine-tuned)
+        unique_names = set()  # To store unique layer names
+        params_status = {}  # To store the status of each layer (frozen or fine-tuned)
 
         # Group layers into broader categories
         for name, param in model.named_parameters():
@@ -99,22 +102,22 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None):
             else:
                 layer_name = "other"
 
-            unique_layers.add(layer_name)  # Add the layer name to the set
+            unique_names.add(layer_name)  # Add the layer name to the set
 
             # Check if the layer should be fine-tuned
             if fine_tune_layers and any(layer in layer_name for layer in fine_tune_layers):
                 param.requires_grad = True
-                layer_status[layer_name] = "fine-tuned"
+                params_status[layer_name] = "fine-tuned"
             else:
                 if param.requires_grad:  # if was already set to True (fc)
-                    layer_status[layer_name] = "fine-tuned"
+                    params_status[layer_name] = "fine-tuned"
                 else:
-                    layer_status[layer_name] = "frozen"
+                    params_status[layer_name] = "frozen"
 
-        # Print the status of all layers
+        # Print the status of all parameters
         print("NN status:")
-        for layer in sorted(unique_layers):
-            print(f"{layer} - {layer_status[layer]}")
+        for layer in sorted(unique_names):
+            print(f"{layer} - {params_status[layer]}")
 
     elif model_type == "vit":
         # Load the pre-trained Vision Transformer (ViT) model
@@ -123,16 +126,46 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None):
         for param in model.parameters():
             param.requires_grad = False
 
-        # Fine-tune specified layers
-        unique_layers = set()  # To store unique layer names
-        layer_status = {}  # To store the status of each layer (frozen or fine-tuned)
+        # Add dropout to MLP blocks if specified and not frozen
+        if mlp_dropout > 0.0 and fine_tune_layers:
+            for i, block in enumerate(model.encoder.layers):
+                layer_name = f"encoder.layers.encoder_layer_{i}"
+                if any(layer in layer_name for layer in fine_tune_layers):
+                    print(f"Adding dropout to fine-tuned MLP block in layer: {layer_name}")
+                    block.mlp = nn.Sequential(
+                        nn.Linear(block.mlp[0].in_features, block.mlp[0].out_features),
+                        nn.GELU(),
+                        nn.Dropout(mlp_dropout),
+                        nn.Linear(block.mlp[3].in_features, block.mlp[3].out_features)
+                    )
+
+        # Add dropout to attention mechanisms if specified and not frozen
+        if attention_dropout > 0.0 and fine_tune_layers:
+            for i, block in enumerate(model.encoder.layers):
+                # Check if the current encoder layer is being fine-tuned
+                layer_name = f"encoder.layers.encoder_layer_{i}"
+                if any(layer in layer_name for layer in fine_tune_layers):
+                    # Access the MultiheadAttention module within the block
+                    if hasattr(block, "self_attention"):
+                        # For some versions of ViT, the attention mechanism is named "self_attention"
+                        block.self_attention.dropout = attention_dropout  # Set dropout probability directly
+                    elif hasattr(block, "attention"):
+                        # For other versions, it might be named "attention"
+                        block.attention.dropout = attention_dropout  # Set dropout probability directly
+                    else:
+                        raise AttributeError(f"Could not find attention mechanism in block {layer_name}")
+                    print(f"Added dropout to attention mechanism in layer: {layer_name}")
 
         # Modify the final classification head to match the number of classes
-        model.heads.head = nn.Linear(model.heads.head.in_features, num_classes)
+        model.heads.head = nn.Sequential(
+            nn.Dropout(final_layer_dropout),  # Dropout in the final layer
+            nn.Linear(model.heads.head.in_features, num_classes)
+        )
         model.heads.head.requires_grad = True  # Always fine-tune the final layer
 
-        # Allow fine-tuning of the positional embeddings
-        # model.encoder.pos_embedding.requires_grad = True
+        # Fine-tune specified layers
+        unique_names = set()  # To store unique layer names
+        params_status = {}  # To store the status of each layer (frozen or fine-tuned)
 
         for name, param in model.named_parameters():
             # Extract the layer name at the desired level of granularity
@@ -143,20 +176,20 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None):
                 # Group conv_proj.weight and conv_proj.bias under "conv_proj"
                 layer_name = "conv_proj"
             else:
-                # Handle other layers (e.g., "class_token", "encoder.pos_embedding", "encoder.ln", "heads.head")
+                # Handle other params (e.g., "class_token", "encoder.pos_embedding", "encoder.ln", "heads.head")
                 layer_name = ".".join(name.split(".")[:2])  # Keep only the first two parts (e.g., "encoder.pos_embedding")
 
-            unique_layers.add(layer_name)  # Add the layer name to the set
+            unique_names.add(layer_name)  # Add the layer name to the set
 
             # Check if the layer should be fine-tuned
             if fine_tune_layers and any(layer in layer_name for layer in fine_tune_layers):
                 param.requires_grad = True
-                layer_status[layer_name] = "fine-tuned"
+                params_status[layer_name] = "fine-tuned"
             else:
                 if param.requires_grad:  # if was already set to True (head)
-                    layer_status[layer_name] = "fine-tuned"
+                    params_status[layer_name] = "fine-tuned"
                 else:
-                    layer_status[layer_name] = "frozen"
+                    params_status[layer_name] = "frozen"
 
         # Sort the encoder layers numerically
         def sort_encoder_layers(layer_name):
@@ -167,10 +200,10 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None):
                 # Return a high number to ensure non-encoder layers are sorted last
                 return float('inf')
 
-        # Print the status of all layers in sorted order
+        # Print the status of all parameters in sorted order
         print("NN status:")
-        for layer in sorted(unique_layers, key=sort_encoder_layers):
-            print(f"{layer} - {layer_status[layer]}")
+        for layer in sorted(unique_names, key=sort_encoder_layers):
+            print(f"{layer} - {params_status[layer]}")
 
         # Check if the image size is compatible with the patch size (16x16 for vit_b_16)
         patch_size = 16
@@ -210,6 +243,7 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None):
         raise ValueError(f"Unsupported model type: {model_type}. Choose 'resnet' or 'vit'.")
 
     return model
+
 
 # Function to get the learning rate scheduler
 def get_scheduler(optimizer, lr_scheduler, num_epochs):
@@ -251,7 +285,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             accumulated_loss += loss.item()
             # get the current learning rate
             current_lr = optimizer.param_groups[0]['lr']
-            train_loop.set_postfix(batch_loss=loss.item(), lr= current_lr, avg_loss=accumulated_loss / analyzed_batches)
+            train_loop.set_postfix(batch_loss=loss.item(), lr=current_lr, avg_loss=accumulated_loss / analyzed_batches)
 
         final_train_loss = accumulated_loss / analyzed_batches
         if scheduler:
@@ -302,9 +336,25 @@ def main():
                         help="Name of the saved model checkpoint (default: 'model').")
     parser.add_argument("--fine_tune_params", type=str, default=None,
                         help="Comma-separated list of layers to fine-tune (e.g., 'layer1,layer2').")
+    parser.add_argument("--weight_decay", type=float, default=0.0,
+                        help="Weight decay for regularization (default: 0.0).")
+    parser.add_argument("--final_layer_dropout", type=float, default=0.0,
+                        help="Dropout rate for the final layer (default: 0.0).")
+    parser.add_argument("--mlp_dropout", type=float, default=0.0,
+                        help="Dropout rate for MLP blocks in ViT (default: 0.0).")
+    parser.add_argument("--attention_dropout", type=float, default=0.0,
+                        help="Dropout rate for attention mechanisms in ViT (default: 0.0).")
     args = parser.parse_args()
 
-    # Print the selected hyperparameters
+    # Validate arguments based on the selected model
+    if args.model == "vit":
+        if args.mlp_dropout > 0.0 or args.attention_dropout > 0.0:
+            print(f"Using MLP dropout: {args.mlp_dropout} and attention dropout: {args.attention_dropout} for ViT.")
+    elif args.model == "resnet":
+        if args.mlp_dropout > 0.0 or args.attention_dropout > 0.0:
+            raise ValueError("mlp_dropout and attention_dropout are not applicable for ResNet.")
+
+    # Print the selected hyperparameters (only relevant ones)
     print(f"Model: {args.model}")
     print(f"Image size: {args.image_size}")
     print(f"Learning rate scheduler: {args.lr_scheduler}")
@@ -313,6 +363,12 @@ def main():
     print(f"Number of epochs: {args.num_epochs}")
     print(f"Model name: {args.model_name}")
     print(f"Fine-tune params: {args.fine_tune_params}")
+    print(f"Weight decay: {args.weight_decay}")
+    print(f"Final layer dropout: {args.final_layer_dropout}")
+
+    if args.model == "vit":
+        print(f"MLP dropout: {args.mlp_dropout}")
+        print(f"Attention dropout: {args.attention_dropout}")
 
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -352,12 +408,12 @@ def main():
     print(f"Steps per epoch (validation): {len(val_loader)}")
 
     # Load and modify the pre-trained model
-    model = load_model(args.model, num_classes, args.image_size, fine_tune_layers)
+    model = load_model(args.model, num_classes, args.image_size, fine_tune_layers, args.final_layer_dropout, args.mlp_dropout, args.attention_dropout)
     model = model.to(device)
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=args.weight_decay)
 
     # Get the learning rate scheduler
     scheduler = get_scheduler(optimizer, args.lr_scheduler, num_epochs)
