@@ -10,7 +10,8 @@ import os
 import argparse
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-
+selected_classes = ['apple_pie', 'pizza', 'sushi', 'ice_cream', 'hamburger']
+num_classes = 5  # Fine-tune on 5 classes
 
 # Data transformations
 def get_transforms(image_size):
@@ -64,15 +65,6 @@ def create_data_loaders(train_dataset, val_dataset, test_dataset, batch_size):
 
 
 # Function to load and modify the pre-trained model
-<<<<<<< Updated upstream
-def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, final_layer_dropout=0.0, mlp_dropout=0.0, attention_dropout=0.0):
-    if model_type == "resnet":
-        # Load the pre-trained ResNet50 model
-        model = models.resnet50(weights=ResNet50_Weights.DEFAULT)
-        # Freeze all layers by default
-        for param in model.parameters():
-            param.requires_grad = False
-=======
 def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, final_layer_dropout=0.0, mlp_dropout=0.0,
                attention_dropout=0.0):
     if model_type == "resnet":
@@ -87,7 +79,6 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
             # Freeze all layers by default
             for param in model.parameters():
                 param.requires_grad = False
->>>>>>> Stashed changes
 
         # Modify the final fully connected layer to match the number of classes
         model.fc = nn.Sequential(
@@ -96,47 +87,6 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
         )
         model.fc.requires_grad = True  # Always fine-tune the final layer
 
-<<<<<<< Updated upstream
-        # Fine-tune specified layers
-        unique_names = set()  # To store unique layer names
-        params_status = {}  # To store the status of each layer (frozen or fine-tuned)
-
-        # Group layers into broader categories
-        for name, param in model.named_parameters():
-            if "conv1" in name:
-                layer_name = "conv1"
-            elif "bn1" in name:
-                layer_name = "bn1"
-            elif "layer1" in name:
-                layer_name = "layer1"
-            elif "layer2" in name:
-                layer_name = "layer2"
-            elif "layer3" in name:
-                layer_name = "layer3"
-            elif "layer4" in name:
-                layer_name = "layer4"
-            elif "fc" in name:
-                layer_name = "fc"
-            else:
-                layer_name = "other"
-
-            unique_names.add(layer_name)  # Add the layer name to the set
-
-            # Check if the layer should be fine-tuned
-            if fine_tune_layers and any(layer in layer_name for layer in fine_tune_layers):
-                param.requires_grad = True
-                params_status[layer_name] = "fine-tuned"
-            else:
-                if param.requires_grad:  # if was already set to True (fc)
-                    params_status[layer_name] = "fine-tuned"
-                else:
-                    params_status[layer_name] = "frozen"
-
-        # Print the status of all parameters
-        print("NN status:")
-        for layer in sorted(unique_names):
-            print(f"{layer} - {params_status[layer]}")
-=======
         # Fine-tune specified layers if fine_tune_layers is not "all"
         if fine_tune_layers and fine_tune_layers[0] != "all":
             unique_names = set()  # To store unique layer names
@@ -193,23 +143,10 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
                                 sum(layer in unique_layer for unique_layer in unique_names) > 1]
             if ambiguous_layers:
                 raise ValueError(f"Ambiguous layer name(s): {ambiguous_layers}")
->>>>>>> Stashed changes
 
     elif model_type == "vit":
         # Load the pre-trained Vision Transformer (ViT) model
         model = models.vit_b_16(weights=ViT_B_16_Weights.DEFAULT)
-<<<<<<< Updated upstream
-        # Freeze all layers by default
-        for param in model.parameters():
-            param.requires_grad = False
-
-        # Add dropout to MLP blocks if specified and not frozen
-        if mlp_dropout > 0.0 and fine_tune_layers:
-            for i, block in enumerate(model.encoder.layers):
-                layer_name = f"encoder.layers.encoder_layer_{i}"
-                if any(layer in layer_name for layer in fine_tune_layers):
-                    print(f"Adding dropout to fine-tuned MLP block in layer: {layer_name}")
-=======
 
         # If fine_tune_layers is "all", fine-tune all layers
         if fine_tune_layers[0] == "all":
@@ -279,7 +216,6 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
                 if fine_tune_layers[0] == "all" or any(
                         layer in f"encoder.layers.encoder_layer_{i}" for layer in fine_tune_layers):
                     print(f"Adding dropout to MLP block in layer: encoder.layers.encoder_layer_{i}")
->>>>>>> Stashed changes
                     block.mlp = nn.Sequential(
                         nn.Linear(block.mlp[0].in_features, block.mlp[0].out_features),
                         nn.GELU(),
@@ -287,21 +223,12 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
                         nn.Linear(block.mlp[3].in_features, block.mlp[3].out_features)
                     )
 
-<<<<<<< Updated upstream
-        # Add dropout to attention mechanisms if specified and not frozen
-        if attention_dropout > 0.0 and fine_tune_layers:
-            for i, block in enumerate(model.encoder.layers):
-                # Check if the current encoder layer is being fine-tuned
-                layer_name = f"encoder.layers.encoder_layer_{i}"
-                if any(layer in layer_name for layer in fine_tune_layers):
-=======
         # Add dropout to attention mechanisms if specified
         if attention_dropout > 0.0:
             for i, block in enumerate(model.encoder.layers):
                 # If fine_tune_layers is "all", apply dropout to all attention mechanisms
                 if fine_tune_layers[0] == "all" or any(
                         layer in f"encoder.layers.encoder_layer_{i}" for layer in fine_tune_layers):
->>>>>>> Stashed changes
                     # Access the MultiheadAttention module within the block
                     if hasattr(block, "self_attention"):
                         # For some versions of ViT, the attention mechanism is named "self_attention"
@@ -310,14 +237,9 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
                         # For other versions, it might be named "attention"
                         block.attention.dropout = attention_dropout  # Set dropout probability directly
                     else:
-<<<<<<< Updated upstream
-                        raise AttributeError(f"Could not find attention mechanism in block {layer_name}")
-                    print(f"Added dropout to attention mechanism in layer: {layer_name}")
-=======
                         raise AttributeError(
                             f"Could not find attention mechanism in block encoder.layers.encoder_layer_{i}")
                     print(f"Added dropout to attention mechanism in layer: encoder.layers.encoder_layer_{i}")
->>>>>>> Stashed changes
 
         # Modify the final classification head to match the number of classes
         model.heads.head = nn.Sequential(
@@ -326,51 +248,6 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
         )
         model.heads.head.requires_grad = True  # Always fine-tune the final layer
 
-<<<<<<< Updated upstream
-        # Fine-tune specified layers
-        unique_names = set()  # To store unique layer names
-        params_status = {}  # To store the status of each layer (frozen or fine-tuned)
-
-        for name, param in model.named_parameters():
-            # Extract the layer name at the desired level of granularity
-            if "encoder.layers" in name:
-                # Group by encoder layer (e.g., "encoder.layers.encoder_layer_0")
-                layer_name = ".".join(name.split(".")[:3])  # Keep only up to "encoder.layers.encoder_layer_X"
-            elif "conv_proj" in name:
-                # Group conv_proj.weight and conv_proj.bias under "conv_proj"
-                layer_name = "conv_proj"
-            else:
-                # Handle other params (e.g., "class_token", "encoder.pos_embedding", "encoder.ln", "heads.head")
-                layer_name = ".".join(name.split(".")[:2])  # Keep only the first two parts (e.g., "encoder.pos_embedding")
-
-            unique_names.add(layer_name)  # Add the layer name to the set
-
-            # Check if the layer should be fine-tuned
-            if fine_tune_layers and any(layer in layer_name for layer in fine_tune_layers):
-                param.requires_grad = True
-                params_status[layer_name] = "fine-tuned"
-            else:
-                if param.requires_grad:  # if was already set to True (head)
-                    params_status[layer_name] = "fine-tuned"
-                else:
-                    params_status[layer_name] = "frozen"
-
-        # Sort the encoder layers numerically
-        def sort_encoder_layers(layer_name):
-            if "encoder.layers.encoder_layer_" in layer_name:
-                # Extract the numerical part of the layer name
-                return int(layer_name.split("_")[-1])
-            else:
-                # Return a high number to ensure non-encoder layers are sorted last
-                return float('inf')
-
-        # Print the status of all parameters in sorted order
-        print("NN status:")
-        for layer in sorted(unique_names, key=sort_encoder_layers):
-            print(f"{layer} - {params_status[layer]}")
-
-=======
->>>>>>> Stashed changes
         # Check if the image size is compatible with the patch size (16x16 for vit_b_16)
         patch_size = 16
         if image_size % patch_size != 0:
@@ -482,8 +359,6 @@ def evaluate_model(model, data_loader, device, desc="Evaluating"):
     return 100 * correct / total
 
 
-<<<<<<< Updated upstream
-=======
 # Function to save the model checkpoint with configurations
 def save_model(model, model_name, model_type, image_size, num_classes, class_names, learning_rate, batch_size, lr_scheduler, num_epochs, weight_decay, fine_tune_layers=None, final_layer_dropout=0.0,
                mlp_dropout=0.0, attention_dropout=0.0):
@@ -523,16 +398,11 @@ def save_model(model, model_name, model_type, image_size, num_classes, class_nam
     print(f"Model saved as {model_path}")
 
 
->>>>>>> Stashed changes
 # Main function
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Fine-tune ResNet or ViT on Food-101 dataset.")
-<<<<<<< Updated upstream
-    parser.add_argument("--model", type=str, default="resnet", choices=["resnet", "vit"],
-=======
     parser.add_argument("--model", type=str, required=True, choices=["resnet", "vit"],
->>>>>>> Stashed changes
                         help="Model type: 'resnet' (default) or 'vit'.")
     parser.add_argument("--image_size", type=int, default=224,
                         help="Input image size (default: 224). Must be divisible by 16 for ViT.")
@@ -544,13 +414,8 @@ def main():
                         help="Learning rate scheduler: 'static' (default) or 'linear'.")
     parser.add_argument("--num_epochs", type=int, default=10,
                         help="Number of epochs for training (default: 10).")
-<<<<<<< Updated upstream
-    parser.add_argument("--model_name", type=str, default="model",
-                        help="Name of the saved model checkpoint (default: 'model').")
-=======
     parser.add_argument("--model_name", type=str, required=True,  # Make model_name mandatory
                         help="Name of the saved model checkpoint (e.g., 'model.pth').")
->>>>>>> Stashed changes
     parser.add_argument("--fine_tune_params", type=str, default=None,
                         help="Comma-separated list of layers to fine-tune (e.g., 'layer1,layer2').")
     parser.add_argument("--weight_decay", type=float, default=0.0,
@@ -564,15 +429,6 @@ def main():
     args = parser.parse_args()
 
     # Validate arguments based on the selected model
-<<<<<<< Updated upstream
-    if args.model == "vit":
-        if args.mlp_dropout > 0.0 or args.attention_dropout > 0.0:
-            print(f"Using MLP dropout: {args.mlp_dropout} and attention dropout: {args.attention_dropout} for ViT.")
-    elif args.model == "resnet":
-        if args.mlp_dropout > 0.0 or args.attention_dropout > 0.0:
-            raise ValueError("mlp_dropout and attention_dropout are not applicable for ResNet.")
-
-=======
     if args.model == "resnet":
         if args.mlp_dropout > 0.0 or args.attention_dropout > 0.0:
             raise ValueError("mlp_dropout and attention_dropout are not applicable for ResNet.")
@@ -582,7 +438,6 @@ def main():
     if fine_tune_params and len(fine_tune_params) > 1 and "all" in fine_tune_params:
         raise ValueError("Cannot fine-tune all layers and specific layers at the same time.")
 
->>>>>>> Stashed changes
     # Print the selected hyperparameters (only relevant ones)
     print(f"Model: {args.model}")
     print(f"Image size: {args.image_size}")
@@ -599,8 +454,6 @@ def main():
         print(f"MLP dropout: {args.mlp_dropout}")
         print(f"Attention dropout: {args.attention_dropout}")
 
-<<<<<<< Updated upstream
-=======
     # Parse fine-tune params
     fine_tune_layers = args.fine_tune_params.split(",") if args.fine_tune_params else None
 
@@ -616,7 +469,6 @@ def main():
                 f"These layers are automatically fine-tuned and should not be specified."
             )
 
->>>>>>> Stashed changes
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -624,23 +476,16 @@ def main():
     batch_size = args.batch_size
     num_epochs = args.num_epochs
     learning_rate = args.learning_rate
-    num_classes = 5  # Fine-tune on 5 classes
 
-<<<<<<< Updated upstream
-    # Parse fine-tune params
-    fine_tune_layers = args.fine_tune_params.split(",") if args.fine_tune_params else None
-
-=======
->>>>>>> Stashed changes
     # Data transformations
     transform = get_transforms(args.image_size)
 
     # Load and filter datasets
     train_dataset = load_and_filter_dataset(root='./data', split='train',
-                                            selected_classes=['apple_pie', 'pizza', 'sushi', 'ice_cream', 'hamburger'],
+                                            selected_classes=selected_classes,
                                             transform=transform)
     test_dataset = load_and_filter_dataset(root='./data', split='test',
-                                           selected_classes=['apple_pie', 'pizza', 'sushi', 'ice_cream', 'hamburger'],
+                                           selected_classes=selected_classes,
                                            transform=transform)
 
     # Split dataset into training and validation sets
@@ -658,12 +503,8 @@ def main():
     print(f"Steps per epoch (validation): {len(val_loader)}")
 
     # Load and modify the pre-trained model
-<<<<<<< Updated upstream
-    model = load_model(args.model, num_classes, args.image_size, fine_tune_layers, args.final_layer_dropout, args.mlp_dropout, args.attention_dropout)
-=======
     model = load_model(args.model, num_classes, args.image_size, fine_tune_layers, args.final_layer_dropout,
                        args.mlp_dropout, args.attention_dropout)
->>>>>>> Stashed changes
     model = model.to(device)
 
     # Loss and optimizer
@@ -685,22 +526,15 @@ def main():
     print(f'Final Validation Accuracy: {v_accuracy:.2f}%')
     tqdm.write(f'Test Accuracy: {test_accuracy:.2f}%')
 
-<<<<<<< Updated upstream
-    # Save the model checkpoint
-    model_name = args.model_name if args.model_name.endswith(".pth") else f"{args.model_name}.pth"
-    torch.save(model.state_dict(), model_name)
-    print(f"Model saved as {model_name}")
-=======
     # Save the model checkpoint with configurations
     model_name = args.model_name if args.model_name.endswith(".pth") else f"{args.model_name}.pth"
     save_model(
         model, model_name, args.model, args.image_size, num_classes,
-        ['apple_pie', 'pizza', 'sushi', 'ice_cream', 'hamburger'],
+        selected_classes,
         args.learning_rate, args.batch_size, args.lr_scheduler, args.num_epochs,
         args.weight_decay, fine_tune_layers, args.final_layer_dropout,
         args.mlp_dropout, args.attention_dropout
     )
->>>>>>> Stashed changes
 
 
 if __name__ == '__main__':
