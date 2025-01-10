@@ -1,6 +1,9 @@
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms, models
 from torchvision.datasets import Food101
@@ -10,8 +13,7 @@ import os
 import argparse
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-selected_classes = ['apple_pie', 'pizza', 'sushi', 'ice_cream', 'hamburger']
-num_classes = 5  # Fine-tune on 5 classes
+classes = ['churros', 'carrot_cake', 'pork_chop', 'panna_cotta', 'greek_salad']
 
 # Data transformations
 def get_transforms(image_size):
@@ -57,16 +59,48 @@ def split_dataset(dataset, train_ratio=0.8):
 
 
 # Function to create data loaders
-def create_data_loaders(train_dataset, val_dataset, test_dataset, batch_size):
-    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
+def create_data_loaders(train_dataset, val_dataset, test_dataset, batch_size, seed=None):
+    """Create data loaders with reproducible shuffling if a seed is provided."""
+    # Define worker_init_fn for reproducibility
+    def seed_worker():
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    # Create a generator for reproducibility
+    generator = torch.Generator()
+    if seed is not None:
+        generator.manual_seed(seed)
+
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=batch_size,
+        shuffle=True,  # Enable shuffling
+        num_workers=os.cpu_count(),  # Number of worker processes
+        worker_init_fn=seed_worker if seed is not None else None,  # Set seed for workers
+        generator=generator if seed is not None else None  # Set seed for DataLoader
+    )
+    val_loader = DataLoader(
+        dataset=val_dataset,
+        batch_size=batch_size,
+        shuffle=False,  # No shuffling for validation
+        num_workers=os.cpu_count()
+    )
+    test_loader = DataLoader(
+        dataset=test_dataset,
+        batch_size=batch_size,
+        shuffle=False,  # No shuffling for testing
+        num_workers=os.cpu_count()
+    )
     return train_loader, val_loader, test_loader
 
 
 # Function to load and modify the pre-trained model
 def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, final_layer_dropout=0.0, mlp_dropout=0.0,
                attention_dropout=0.0):
+
+    unique_names = set()  # To store unique layer names
+
     if model_type == "resnet":
         # Load the pre-trained ResNet50 model
         model = models.resnet50(weights=ResNet50_Weights.DEFAULT)
@@ -89,7 +123,6 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
 
         # Fine-tune specified layers if fine_tune_layers is not "all"
         if fine_tune_layers and fine_tune_layers[0] != "all":
-            unique_names = set()  # To store unique layer names
             params_status = {}  # To store the status of each layer (frozen or fine-tuned)
 
             # Group layers into broader categories
@@ -123,26 +156,10 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
                     else:
                         params_status[layer_name] = "frozen"
 
-            # Print the status of all parameters
-            print("NN status:")
-            for layer in sorted(unique_names):
-                print(f"{layer} - {params_status[layer]}")
-
-            # Check if specified fine_tune_layers are valid
-            if fine_tune_layers[0] != "all":
-                # Check if specified fine_tune_layers are valid
-                invalid_layers = []
-                for layer in fine_tune_layers:
-                    if not any(layer in unique_layer for unique_layer in unique_names):
-                        invalid_layers.append(layer)
-                if invalid_layers:
-                    raise ValueError(f"Invalid layer name(s): {invalid_layers}")
-
-            # Check for ambiguous layer names (e.g., "layer")
-            ambiguous_layers = [layer for layer in fine_tune_layers if
-                                sum(layer in unique_layer for unique_layer in unique_names) > 1]
-            if ambiguous_layers:
-                raise ValueError(f"Ambiguous layer name(s): {ambiguous_layers}")
+            # Print the status of all parameters in order from bottom to top
+            print("NN Layers:")
+            for layer in sorted(unique_names, key=lambda x: int(x.split("layer")[-1]) if "layer" in x else -1):
+                    print(f"{layer} - {params_status[layer]}")
 
     elif model_type == "vit":
         # Load the pre-trained Vision Transformer (ViT) model
@@ -159,7 +176,6 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
 
         # Fine-tune specified layers if fine_tune_layers is not "all"
         if fine_tune_layers and fine_tune_layers[0] != "all":
-            unique_names = set()  # To store unique layer names
             params_status = {}  # To store the status of each layer (frozen or fine-tuned)
 
             for name, param in model.named_parameters():
@@ -189,25 +205,11 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
                     else:
                         params_status[layer_name] = "frozen"
 
-            # Print the status of all parameters
-            print("NN status:")
-            for layer in sorted(unique_names):
+            # Print the status of all parameters in order from bottom to top
+            # lambda based on digits in the layer name
+            print("NN Layers:")
+            for layer in sorted(unique_names, key=lambda x: int(x.split("layer_")[-1]) if "layer_" in x else -1):
                 print(f"{layer} - {params_status[layer]}")
-
-            if fine_tune_layers[0] != "all":
-                # Check if specified fine_tune_layers are valid
-                invalid_layers = []
-                for layer in fine_tune_layers:
-                    if not any(layer in unique_layer for unique_layer in unique_names):
-                        invalid_layers.append(layer)
-                if invalid_layers:
-                    raise ValueError(f"Invalid layer name(s): {invalid_layers}")
-
-            # Check for ambiguous layer names (e.g., "layer")
-            ambiguous_layers = [layer for layer in fine_tune_layers if
-                                sum(layer in unique_layer for unique_layer in unique_names) > 1]
-            if ambiguous_layers:
-                raise ValueError(f"Ambiguous layer name(s): {ambiguous_layers}")
 
         # Add dropout to MLP blocks if specified
         if mlp_dropout > 0.0:
@@ -285,6 +287,21 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
     else:
         raise ValueError(f"Unsupported model type: {model_type}. Choose 'resnet' or 'vit'.")
 
+    # Check if specified fine_tune_layers are valid
+    if fine_tune_layers[0] != "all":
+        invalid_layers = []
+        for layer in fine_tune_layers:
+            if not any(layer in unique_layer for unique_layer in unique_names):
+                invalid_layers.append(layer)
+        if invalid_layers:
+            raise ValueError(f"Invalid layer name(s): {invalid_layers}")
+
+    # Check for ambiguous layer names (e.g., "layer")
+    ambiguous_layers = [layer for layer in fine_tune_layers if
+                        sum(layer in unique_layer for unique_layer in unique_names) > 1]
+    if ambiguous_layers:
+        raise ValueError(f"Ambiguous layer name(s): {ambiguous_layers}")
+
     return model
 
 
@@ -302,16 +319,42 @@ def get_scheduler(optimizer, lr_scheduler, num_epochs):
     return scheduler
 
 
+# Function to plot the training loss and the validation accuracy
+def plot_graphs(train_loss, val_accuracies):
+
+    # Plot Training Loss
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(train_loss, label='Training Loss', color='blue')
+    plt.title('Training Loss Over Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.grid(True)
+
+    # Plot Validation Accuracy
+    plt.subplot(1, 2, 2)
+    plt.plot(val_accuracies, label='Validation Accuracy', color='green')
+    plt.title('Validation Accuracy Over Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy (%)')
+    plt.grid(True)
+
+    # Show graphs
+    plt.tight_layout()
+    plt.show()
+
+
 # Function to train the model
-def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs, device):
-    final_train_loss = 0.0
-    validation_accuracy = 0.0
+def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs, device, args):
+    best_val_accuracy = 0.0
+    epochs_without_improvement = 0
+    train_losses = []  # To store training loss for each epoch
+    val_accuracies = []  # To store validation accuracy for each epoch
+
     for epoch in range(num_epochs):
         model.train()
-        # reset loss at each new epoch
         accumulated_loss = 0.0
         analyzed_batches = 0
-        # Wrap train_loader with tqdm for a progress bar
         train_loop = tqdm(train_loader, desc=f"Epoch [{epoch + 1}/{num_epochs}] Training")
         for images, labels in train_loop:
             images, labels = images.to(device), labels.to(device)
@@ -326,18 +369,55 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
             analyzed_batches += 1
             accumulated_loss += loss.item()
-            # get the current learning rate
             current_lr = optimizer.param_groups[0]['lr']
             train_loop.set_postfix(batch_loss=loss.item(), lr=current_lr, avg_loss=accumulated_loss / analyzed_batches)
 
-        final_train_loss = accumulated_loss / analyzed_batches
+        # Calculate average training loss for the epoch
+        epoch_train_loss = accumulated_loss / analyzed_batches
+        train_losses.append(epoch_train_loss)
+
         if scheduler:
             scheduler.step()
 
         # Validation loop with progress bar
-        validation_accuracy = evaluate_model(model, val_loader, device,
-                                             desc=f"Epoch [{epoch + 1}/{num_epochs}] Validation")
-    return final_train_loss, validation_accuracy
+        validation_accuracy = evaluate_model(model, val_loader, device, desc=f"Epoch [{epoch + 1}/{num_epochs}] Validation")
+        val_accuracies.append(validation_accuracy)
+
+
+        # Save the best model if validation accuracy improves
+        if args.save_best_model and validation_accuracy > best_val_accuracy:
+            if args.early_stop is None:
+                # Else the update is done in the early stopping block
+                best_val_accuracy = validation_accuracy
+            save_model(model, args.model_name, args.model, args.image_size, len(classes), classes, args.learning_rate, args.batch_size, args.lr_scheduler, len(train_losses), args.weight_decay, args.fine_tune_params, args.final_layer_dropout, args.mlp_dropout, args.attention_dropout)
+            print(f"New best model saved with validation accuracy: {validation_accuracy:.2f}% and train loss: {epoch_train_loss:.4f}")
+
+        # Early stopping
+        if args.early_stop is not None:
+            if validation_accuracy > best_val_accuracy:
+                best_val_accuracy = validation_accuracy
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= args.early_stop:
+                    print(f"Early stopping triggered after {epoch + 1}. No improvement for the last {epochs_without_improvement} epochs.")
+                    break
+
+    # Plot training loss and validation accuracy
+    plot_graphs(train_losses, val_accuracies)
+
+    # Save the model checkpoint with configurations (if not saving the best model)
+    if not args.save_best_model:
+        save_model(
+            model, args.model_name, args.model, args.image_size, len(classes),
+            classes,
+            args.learning_rate, args.batch_size, args.lr_scheduler, len(train_losses),
+            args.weight_decay, args.fine_tune_params, args.final_layer_dropout,
+            args.mlp_dropout, args.attention_dropout
+        )
+    print("Model saved as:", args.model_name if ".pth" in args.model_name else f"{args.model_name}.pth")
+
+    return train_losses[-1], val_accuracies[-1]
 
 
 # Function to evaluate the model
@@ -364,9 +444,9 @@ def save_model(model, model_name, model_type, image_size, num_classes, class_nam
                mlp_dropout=0.0, attention_dropout=0.0):
     # Create the models directory if it doesn't exist
     models_dir = "models"
+    model_name = model_name if model_name.endswith(".pth") else f"{model_name}.pth"
     if not os.path.exists(models_dir):
         os.makedirs(models_dir)
-        print(f"Created directory: {models_dir}")
 
     # Create a dictionary to store the model state and configurations
     checkpoint = {
@@ -395,7 +475,17 @@ def save_model(model, model_name, model_type, image_size, num_classes, class_nam
     # Save the checkpoint inside the models folder
     model_path = os.path.join(models_dir, model_name)
     torch.save(checkpoint, model_path)
-    print(f"Model saved as {model_path}")
+
+
+def set_seed(seed):
+    """Set random seed for reproducibility."""
+    torch.manual_seed(seed)  # For PyTorch
+    torch.cuda.manual_seed(seed)  # For CUDA
+    torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
+    np.random.seed(seed)  # For NumPy
+    random.seed(seed)  # For Python's random module
+    torch.backends.cudnn.deterministic = True  # Ensure deterministic behavior for CuDNN
+    torch.backends.cudnn.benchmark = False  # Disable CuDNN benchmarking for reproducibility
 
 
 # Main function
@@ -426,7 +516,56 @@ def main():
                         help="Dropout rate for MLP blocks in ViT (default: 0.0).")
     parser.add_argument("--attention_dropout", type=float, default=0.0,
                         help="Dropout rate for attention mechanisms in ViT (default: 0.0).")
+    parser.add_argument("--save_best_model", action="store_true",
+                        help="Save the model with the best validation accuracy.")
+    parser.add_argument("--early_stop", type=int, default=None,
+                        help="Number of epochs to wait before early stopping if validation accuracy doesn't improve.")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Random seed for reproducibility. If not provided, randomness will not be controlled.")
     args = parser.parse_args()
+
+    # Some checks to ensure arguments are valid
+    if args.num_epochs <= 0:
+        raise ValueError("Number of epochs must be greater than 0.")
+
+    if args.early_stop is not None and (args.early_stop <= 0 or args.early_stop >= args.num_epochs):
+        raise ValueError("Early stopping must be greater than 0 and less than the number of epochs.")
+
+    if args.image_size < 0:
+        raise ValueError("Image size must be a positive integer.")
+
+    if args.batch_size <= 0:
+        raise ValueError("Batch size must be a positive integer.")
+
+    if args.learning_rate <= 0:
+        raise ValueError("Learning rate must be a positive float.")
+
+    if args.weight_decay < 0:
+        raise ValueError("Weight decay must be a non-negative float.")
+
+    if args.final_layer_dropout < 0 or args.final_layer_dropout >= 1:
+        raise ValueError("Final layer dropout must be in the range [0, 1).")
+
+    if args.mlp_dropout < 0 or args.mlp_dropout >= 1:
+        raise ValueError("MLP dropout must be in the range [0, 1).")
+
+    if args.attention_dropout < 0 or args.attention_dropout >= 1:
+        raise ValueError("Attention dropout must be in the range [0, 1).")
+
+    # Set random seeds for reproducibility
+    if args.seed is not None and args.seed > 0:
+        print(f"Setting random seed for reproducibility: {args.seed}")
+        set_seed(args.seed)
+    elif args.seed is not None and args.seed <= 0:
+        raise ValueError("Random seed must be a positive integer.")
+
+    if args.save_best_model:
+        print("Saving the best model based on validation accuracy")
+
+    if args.early_stop is not None and not args.save_best_model:
+        print("[WARNING]: Early stopping is enabled without saving the best model")
+    elif args.early_stop is not None and args.save_best_model:
+        print(f"Early stopping is enabled with a patience of {args.early_stop} epochs")
 
     # Validate arguments based on the selected model
     if args.model == "resnet":
@@ -449,6 +588,8 @@ def main():
     print(f"Fine-tune params: {args.fine_tune_params}")
     print(f"Weight decay: {args.weight_decay}")
     print(f"Final layer dropout: {args.final_layer_dropout}")
+    print(f"Save best model: {args.save_best_model}")
+    print(f"Early stop: {args.early_stop}")
 
     if args.model == "vit":
         print(f"MLP dropout: {args.mlp_dropout}")
@@ -482,10 +623,10 @@ def main():
 
     # Load and filter datasets
     train_dataset = load_and_filter_dataset(root='./data', split='train',
-                                            selected_classes=selected_classes,
+                                            selected_classes=classes,
                                             transform=transform)
     test_dataset = load_and_filter_dataset(root='./data', split='test',
-                                           selected_classes=selected_classes,
+                                           selected_classes=classes,
                                            transform=transform)
 
     # Split dataset into training and validation sets
@@ -503,7 +644,7 @@ def main():
     print(f"Steps per epoch (validation): {len(val_loader)}")
 
     # Load and modify the pre-trained model
-    model = load_model(args.model, num_classes, args.image_size, fine_tune_layers, args.final_layer_dropout,
+    model = load_model(args.model, len(classes), args.image_size, fine_tune_layers, args.final_layer_dropout,
                        args.mlp_dropout, args.attention_dropout)
     model = model.to(device)
 
@@ -516,7 +657,7 @@ def main():
 
     # Train the model
     t_loss, v_accuracy = train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs,
-                                     device)
+                                     device, args)
 
     # Test the model with progress bar
     test_accuracy = evaluate_model(model, test_loader, device, desc="Testing")
@@ -525,16 +666,6 @@ def main():
     print(f'Final Train Loss: {t_loss:.4f}')
     print(f'Final Validation Accuracy: {v_accuracy:.2f}%')
     tqdm.write(f'Test Accuracy: {test_accuracy:.2f}%')
-
-    # Save the model checkpoint with configurations
-    model_name = args.model_name if args.model_name.endswith(".pth") else f"{args.model_name}.pth"
-    save_model(
-        model, model_name, args.model, args.image_size, num_classes,
-        selected_classes,
-        args.learning_rate, args.batch_size, args.lr_scheduler, args.num_epochs,
-        args.weight_decay, fine_tune_layers, args.final_layer_dropout,
-        args.mlp_dropout, args.attention_dropout
-    )
 
 
 if __name__ == '__main__':

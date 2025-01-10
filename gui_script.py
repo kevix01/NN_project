@@ -271,6 +271,9 @@ def get_available_devices():
 window = Tk()
 window.title("Image Classifier")
 
+# Disable resizing of the window
+window.resizable(False, False)  # Disable resizing in both width and height
+
 # Variables
 image_path = StringVar()
 loaded_model = None
