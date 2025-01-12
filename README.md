@@ -25,7 +25,8 @@ food-classification/
 ├── examples/               # Directory containing sample images for testing models with the GUI
 ├── training_script.py      # Script for training and fine-tuning models
 ├── gui_script.py           # Script for loading models and performing inference via GUI
-└── README.md               # Project documentation
+├── README.md               # Project documentation
+└── LICENSE                 # License file for the project
 ```
 
 ## Description
@@ -49,6 +50,9 @@ This project is designed for fine-tuning and using pre-trained ResNet and Vision
 
 - **README.md**:  
   This file contains the project documentation, including instructions for setting up the environment, training models, and using the GUI for inference. It also provides details about the project structure, requirements, and acknowledgments.
+
+- **LICENSE**:  
+  This file contains the license under which the project is distributed. For this project, the MIT License is used, allowing users to freely use, modify, and distribute the code with proper attribution.
 
 
 ## How to Use
