@@ -337,7 +337,7 @@ def load_model(model_type, num_classes, image_size=224, fine_tune_layers=None, f
         model = models.vit_b_16(weights=ViT_B_16_Weights.DEFAULT)
 
         # Fine-tune all layers if 'all' is specified in fine_tune_layers
-        if fine_tune_layers[0] == "all":
+        if fine_tune_layers and fine_tune_layers[0] == "all":
             for param in model.parameters():
                 param.requires_grad = True
         else:

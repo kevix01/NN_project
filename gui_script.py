@@ -28,7 +28,7 @@ def load_model(model_path, device):
         ValueError: If the model type is unsupported or if positional embeddings are missing for ViT.
     """
     # Load the checkpoint file
-    checkpoint = torch.load(model_path, weights_only=True)  # Set weights_only=True for security
+    checkpoint = torch.load(model_path, weights_only=True, map_location=device)  # Set weights_only=True for security
 
     # Extract configurations from the checkpoint
     model_type = checkpoint.get('model_type', None)  # Default to 'resnet' if not found
@@ -321,12 +321,13 @@ def on_model_select(event):
 
     # Get the selected model from the listbox
     selected_model = model_listbox.get(model_listbox.curselection())
-    model_path = os.path.join("models", selected_model)
+    model_path = os.path.join(models_dir, selected_model)
     try:
         # Load the model and configurations
         global loaded_model, loaded_configs
         loaded_model, loaded_configs = load_model(model_path, device)
         display_configs(loaded_configs)  # Display configurations on the GUI
+        show_info_frames()  # Show the info frames
         result_label.config(text="Model loaded successfully!")
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load model: {e}")
@@ -445,6 +446,15 @@ def get_available_devices():
     return devices
 
 
+# Function to show the model and training info frames
+def show_info_frames():
+    """
+    Make the model and training info frames visible.
+    """
+    model_info_frame.grid()  # Show the model info frame
+    training_info_frame.grid()  # Show the training info frame
+
+
 # Create the Tkinter window
 window = Tk()
 window.title("Image Classifier")
@@ -498,28 +508,30 @@ else:
     messagebox.showwarning("Warning", "No models folder found!")
 
 # Device selection dropdown menu
-Label(window, text="Select Device:").grid(row=7, column=0, padx=10, pady=10)
+Label(window, text="Select Device:").grid(row=0, column=3, padx=10, pady=10)
 device_dropdown = OptionMenu(window, device_var, *available_devices, command=change_device)
-device_dropdown.grid(row=7, column=1, padx=10, pady=10)
+device_dropdown.grid(row=0, column=4, padx=10, pady=10)
 
 # Frames for displaying model and training information
 model_info_frame = Frame(window, borderwidth=2, relief="groove")
-model_info_frame.grid(row=4, column=0, padx=10, pady=10, sticky="nsew")
+model_info_frame.grid(row=1, column=3, padx=10, pady=10, sticky="nsew")
+model_info_frame.grid_remove()  # Hide the frame initially
 
 training_info_frame = Frame(window, borderwidth=2, relief="groove")
-training_info_frame.grid(row=4, column=1, padx=10, pady=10, sticky="nsew")
+training_info_frame.grid(row=1, column=4, padx=10, pady=10, sticky="nsew")
+training_info_frame.grid_remove()  # Hide the frame initially
 
 # Button to perform inference on the selected image
 predict_button = Button(window, text="Classify", command=perform_inference)
-predict_button.grid(row=5, column=0, columnspan=2, pady=10)
+predict_button.grid(row=2, column=3, columnspan=2, pady=10)
 
-# Label for displaying the predicted class
-result_label = Label(window, text="Predicted Class: ", font=("Arial", 12))
-result_label.grid(row=6, column=0, columnspan=2, pady=10)
+# Label for displaying the predicted class or status messages
+result_label = Label(window, text="Ready", font=("Arial", 12), wraplength=400)
+result_label.grid(row=3, column=3, columnspan=2, pady=10, padx=20)
 
 # Label for displaying loading or status messages
 loading_label = Label(window, text="", font=("Arial", 12), fg="blue")
-loading_label.grid(row=8, column=0, columnspan=2, pady=10)
+loading_label.grid(row=4, column=3, columnspan=2, pady=10)
 
 # Run the Tkinter event loop to display the window and handle user interactions
 window.mainloop()
