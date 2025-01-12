@@ -195,6 +195,7 @@ def display_configs(configs):
     Label(training_info_frame, text=f"Num Epochs: {configs['num_epochs']}").grid(row=4, column=0, sticky="w")
     Label(training_info_frame, text=f"Weight Decay: {configs['weight_decay']}").grid(row=5, column=0, sticky="w")
 
+
 # Function to classify an image
 def classify_image(model, image_path, image_size=256):
     """
@@ -257,9 +258,9 @@ def browse_files():
     # Specify the file types to include in the file dialog
     filetypes = [("Image files", "*.jpg *.jpeg *.png"), ("All files", "*.*")]
 
-    # Open the file dialog to select an image
+    # Open the file dialog to select an image, starting in the project directory
     filename = filedialog.askopenfilename(
-        initialdir="/",  # Start browsing from the root directory
+        initialdir=os.getcwd(),  # Start browsing from the project directory
         title="Select an Image",  # Set the title of the file dialog
         filetypes=filetypes  # Filter files to include only image files (jpg, jpeg, png) and all files
     )
@@ -268,6 +269,7 @@ def browse_files():
     if filename:
         image_path.set(filename)  # Update the global `image_path` variable with the selected file's path
         show_image(filename)  # Call the `show_image` function to display the selected image in the GUI
+
 
 # Function to display the selected image
 def show_image(image_path):
