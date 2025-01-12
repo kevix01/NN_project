@@ -12,7 +12,7 @@ The goal of this project is to classify food images into one of five categories:
 - Early stopping and saving the best model based on validation accuracy.
 - A GUI for loading trained models, selecting images, and performing inference.
 - Display of model and training configurations in the GUI.
-
+  
 ## Project Structure
 
 The project is structured as follows:
@@ -20,11 +20,12 @@ The project is structured as follows:
 ```bash
 food-classification/
 │
-├── data/ # Directory for storing the Food-101 dataset
-├── models/ # Directory for saving trained model checkpoints
-├── training_script.py # Script for training and fine-tuning models
-├── gui_script.py # Script for loading models and performing inference via GUI
-└── README.md # Project documentation
+├── data/                   # Directory for storing the Food-101 dataset
+├── models/                 # Directory for saving trained model checkpoints
+├── examples/               # Directory containing sample images for testing models with the GUI
+├── training_script.py      # Script for training and fine-tuning models
+├── gui_script.py           # Script for loading models and performing inference via GUI
+└── README.md               # Project documentation
 ```
 
 ## Description
@@ -36,6 +37,9 @@ This project is designed for fine-tuning and using pre-trained ResNet and Vision
 
 - **models/**:  
   This directory is used to save trained model checkpoints. Each checkpoint includes the model's state, training configurations, and hyperparameters. Models are saved with a `.pth` extension and can be loaded later for inference or further training.
+
+- **examples/**:  
+  This directory contains sample images that can be used to test the trained models with the GUI. Users can select these images from the GUI to see how the model performs on unseen data. The images should represent the five classes (`churros`, `carrot_cake`, `pork_chop`, `panna_cotta`, and `greek_salad`) to ensure the model's predictions can be verified.
 
 - **training_script.py**:  
   This script is used for training and fine-tuning ResNet or Vision Transformer (ViT) models on the Food-101 dataset. It supports custom configurations such as image size, batch size, learning rate, and fine-tuning specific layers. The script also includes features like early stopping, learning rate scheduling, and saving the best model based on validation accuracy.
